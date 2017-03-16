@@ -92,24 +92,35 @@ public class SimpleDistributeLock {
     public boolean tryLock(int expireSecond,int waitSecond) {
         Jedis jedis = jedisPool.getResource();
         try {
-            //尝试获得锁
-            if (jedis.setnx(redisLockKey,"lock")>0){
-                //成功获得锁 设置超时时间
-                jedis.expire(redisLockKey,expireSecond);
-                return true;
-            }
-            //阻塞等待释放锁通知
-            List<String> lp = jedis.blpop(waitSecond,redisListKey);
-            if (lp.size()==0){
-                //如果超时则返回锁定失败
-                return false;
-            }
-            return tryLock(expireSecond,waitSecond);
+            //2017-03-16 修复递归会造成的 资源无限获取且需递归释放的问题
+            return tryLockInner(jedis,expireSecond,waitSecond);
         }finally {
             jedis.close();
         }
     }
 
+    /**
+     * 获得锁
+     * @param jedis redis连接
+     * @param expireSecond 持有锁超时秒数
+     * @param waitSecond 等待锁超时秒数
+     * @return
+     */
+    private boolean tryLockInner(Jedis jedis,int expireSecond,int waitSecond){
+        //尝试获得锁
+        if (jedis.setnx(redisLockKey,"lock")>0){
+            //成功获得锁 设置超时时间
+            jedis.expire(redisLockKey,expireSecond);
+            return true;
+        }
+        //阻塞等待释放锁通知
+        List<String> lp = jedis.blpop(waitSecond,redisListKey);
+        if (lp.size()==0){
+            //如果超时则返回锁定失败
+            return false;
+        }
+        return tryLockInner(jedis,expireSecond,waitSecond);
+    }
     /**
      * 释放锁
      * @return
